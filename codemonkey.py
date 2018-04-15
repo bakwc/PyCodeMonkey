@@ -41,8 +41,7 @@ def parseFunctionDef(funcDef):
     funcArgs = map(lambda x:x.strip(), funcDef.split(','))
     return FuncInfo(funcName, funcArgs)
 
-def generateOutput(program, inFile, outFile):
-    inData = open(inFile, 'r').read()
+def generateProgram(program):
     outData = ''
     for importName in program.imports:
         outData += 'import %s\n' % importName
@@ -50,10 +49,14 @@ def generateOutput(program, inFile, outFile):
 
     funcInfo = program.funcInfo
 
-    outData += 'def %s(%s):\n' % (funcInfo.name, ','.join(funcInfo.args))
+    outData += 'def %s(%s):\n' % (funcInfo.name, ', '.join(funcInfo.args))
     for line in program.lines:
         outData += '    %s\n' % line
-    outData += '\n\n'
+    return outData
+
+def generateOutput(program, inFile, outFile):
+    inData = open(inFile, 'r').read()
+    outData = generateProgram(program)
     outData += inData
     outData += '\n'
     outData += '''
@@ -70,8 +73,102 @@ def checkProgram(program, inFile):
     exit_code = process.wait()
     return exit_code == 0
 
-def checkCodeFragment(program, inFile, codeFragment):
-    pass
+FUNC_SKIP_START = ['import ', 'from ', 'class ', 'def ']
+def extractFuncs(framgent):
+    lines = framgent.split('\n')
+    funcs = []
+
+    for l in lines:
+        l = l.strip()
+        if l.startswith('print '):
+            l = l[6:]
+        if l.startswith('>>> '):
+            l = l[4:]
+        if l.startswith('return '):
+            l = l[7:]
+        skip = False
+        for pref in FUNC_SKIP_START:
+            if l.startswith(pref):
+                skip = True
+                break
+        if skip:
+            continue
+        eq = l.find('=')
+        ob = l.find('(')
+        if eq != -1 and eq < ob:
+            l = l[eq + 1:]
+            l = l.strip()
+            ob = l.find('(')
+        if ob == -1 or ob == 0:
+            continue
+        if l.startswith('['):
+            continue
+        funcName = l[:ob]
+        l = l[ob+1:]
+        eb = l.find(')')
+        if eb != -1:
+            l = l[:eb]
+        args = map(lambda x:x.strip(), l.split(','))
+        kwArgs = []
+        rargs = []
+        for arg in args:
+            if arg.find('=') != -1:
+                k, v = arg.split('=')[:2]
+                kwArgs.append((k, v))
+            elif not kwArgs:
+                rargs.append(arg)
+
+        funcs.append((funcName, rargs, kwArgs))
+
+    return funcs
+
+def checkCodeFragment(funcInfo, inFile, codeFragment):
+    funcs = extractFuncs(codeFragment)
+    if not funcs:
+        return None
+    for funcName, args, kwargs in funcs:
+        #print 'checking func', funcName
+
+        program = Program(funcInfo)
+        program.addBodyLine('return %s(%s)' % (funcName, ', '.join(funcInfo.args)))
+        #print 'checking lines:', program.lines
+        if checkProgram(program, inFile):
+            return program
+
+        if kwargs:
+            program = Program(funcInfo)
+            program.addBodyLine('return %s(%s, %s)' % (funcName, ', '.join(funcInfo.args), ', '.join([x[0] + '=' + x[1] for x in kwargs])))
+            #print 'checking lines:', program.lines
+            if checkProgram(program, inFile):
+                return program
+    return None
+
+def checkCodeFragments(funcInfo, inFile, codeFragments):
+    for codeFragment in codeFragments:
+        program = checkCodeFragment(funcInfo, inFile, codeFragment)
+        if program is not None:
+            return program
+    return None
+
+# extractFuncs('print max(path.nodes, key=y)')
+# extractFuncs('sorted(vals)')
+# extractFuncs('sorted(vals, reverse=True)')
+
+# print extractFuncs('''
+#
+# maxy = max(node.y for node in node_lst)
+# print(maxy)
+# >>> 15
+#
+# max_node = max(node_lst, key=lambda node: node.y)
+# print(max_node.y)
+# >>> 15
+# ''')
+
+# print extractFuncs('''
+# sorted(timestamp, reverse=True)
+# ''')
+
 
 def main():
     if len(sys.argv) != 2:
@@ -82,15 +179,29 @@ def main():
     description = problem.DESCR
     funcInfo = parseFunctionDef(problem.DEF)
 
-    program = Program(funcInfo)
-    program.addBodyLine('return sorted(%s, reverse=True)' % funcInfo.args[0])
+    # program = Program(funcInfo)
+    #program.addBodyLine('return sorted(%s, reverse=True)' % funcInfo.args[0])
     # program.addBodyLine('return sorted(%s, reverse=False)' % funcInfo.args[0])
-    print checkProgram(program, problemFile)
+    # print checkProgram(program, problemFile)
 
-    program = Program(funcInfo)
+    #program = Program(funcInfo)
     # program.addBodyLine('return sorted(%s, reverse=True)' % funcInfo.args[0])
-    program.addBodyLine('return sorted(%s, reverse=False)' % funcInfo.args[0])
-    print checkProgram(program, problemFile)
+    #program.addBodyLine('return sorted(%s, reverse=False)' % funcInfo.args[0])
+    #print checkProgram(program, problemFile)
+
+    fragments = [
+        'print max(path.nodes, key=y)',
+        'print sorted(nums, reverse=True)',
+        'return sum(values)',
+    ]
+
+    program = checkCodeFragments(funcInfo, problemFile, fragments)
+    if program is not None:
+        print generateProgram(program)
+    else:
+        print 'go hack yourself'
+
+    #print checkCodeFragment(funcInfo, problemFile, fragment)
 
     #program.addBodyLine('pass')
     #program.addBodyLine('#' + description)
