@@ -5,6 +5,7 @@ import os
 import imp
 import time
 from subprocess import Popen, PIPE
+from howdoi import howdoi
 
 FNULL = open(os.devnull, 'w')
 
@@ -141,10 +142,21 @@ def checkCodeFragment(funcInfo, inFile, codeFragment):
             #print 'checking lines:', program.lines
             if checkProgram(program, inFile):
                 return program
+            if len(kwargs) > 1:
+                for kwarg in kwargs:
+                    program = Program(funcInfo)
+                    program.addBodyLine('return %s(%s, %s=%s)' % (funcName, ', '.join(funcInfo.args), kwarg[0], kwarg[1]))
+                    # print 'checking lines:', program.lines
+                    if checkProgram(program, inFile):
+                        return program
+
     return None
 
 def checkCodeFragments(funcInfo, inFile, codeFragments):
     for codeFragment in codeFragments:
+        # print 'checking fragment: <<<'
+        # print codeFragment
+        # print '>>>\n'
         program = checkCodeFragment(funcInfo, inFile, codeFragment)
         if program is not None:
             return program
@@ -169,6 +181,43 @@ def checkCodeFragments(funcInfo, inFile, codeFragments):
 # sorted(timestamp, reverse=True)
 # ''')
 
+def _get_instructions(args):
+    links = howdoi._get_links(args['query'])
+    if not links:
+        return False
+
+    question_links = howdoi._get_questions(links)
+    if not question_links:
+        return False
+
+    only_hyperlinks = args.get('link')
+    star_headers = False
+
+    answers = []
+    initial_position = args['pos']
+
+    for answer_number in range(args['num_answers']):
+        current_position = answer_number + initial_position
+        args['pos'] = current_position
+        link = howdoi.get_link_at_pos(question_links, current_position)
+        answer = howdoi._get_answer(args, question_links)
+        if not answer:
+            continue
+
+        answer = howdoi.format_answer(link, answer, star_headers)
+        answers.append(answer)
+    return answers
+
+def getFragments(query, count = 20):
+    args = {}
+    args['query'] = query
+    args['num_answers'] = count
+    args['all'] = False
+    args['pos'] = 1
+    args['color'] = False
+    e = _get_instructions(args)
+    return e
+
 
 def main():
     if len(sys.argv) != 2:
@@ -189,11 +238,13 @@ def main():
     #program.addBodyLine('return sorted(%s, reverse=False)' % funcInfo.args[0])
     #print checkProgram(program, problemFile)
 
-    fragments = [
-        'print max(path.nodes, key=y)',
-        'print sorted(nums, reverse=True)',
-        'return sum(values)',
-    ]
+    # fragments = [
+    #     'print max(path.nodes, key=y)',
+    #     'print sorted(nums, reverse=True)',
+    #     'return sum(values)',
+    # ]
+
+    fragments = getFragments('python ' + description, 10)
 
     program = checkCodeFragments(funcInfo, problemFile, fragments)
     if program is not None:
