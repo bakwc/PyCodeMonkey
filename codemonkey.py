@@ -2,6 +2,7 @@
 
 import sys
 import os
+import re
 import imp
 import time
 from subprocess import Popen, PIPE
@@ -124,10 +125,58 @@ def extractFuncs(framgent):
 
     return funcs
 
+def getOffset(l):
+    for i, c in enumerate(l):
+        if c != ' ':
+            return i
+    return None
+
+def extractFuncSnippets(codeFragment):
+    lines = codeFragment.split('\n')
+    currentFunc = None
+    offset = None
+    bodyLines = []
+
+    funcSnippets = []
+
+    for l in lines:
+        if not l.strip():
+            continue
+        if currentFunc is not None:
+            if offset is None:
+                offset = getOffset(l)
+            if getOffset(l) < offset:
+                funcSnippets.append((currentFunc, bodyLines))
+                currentFunc = None
+                bodyLines = []
+                offset = None
+            else:
+                bodyLines.append(l)
+
+        if l.startswith('def '):
+            try:
+                funcInfo = parseFunctionDef(l)
+            except Exception:
+                funcInfo = None
+            if funcInfo is not None:
+                currentFunc = funcInfo
+
+    return funcSnippets
+
+
+def replaceArgs(l, argsFrom, argsTo):
+    for i in xrange(len(argsFrom)):
+        argFrom = argsFrom[i]
+        argTo = argsTo[i]
+        pattern = r'(^|[^a-zA-Z\d])%s([^a-zA-Z\d]|$)' % argFrom
+        target = r'\1%s\2' % argTo
+        l = re.sub(pattern, target, l)
+    return l
+
+
 def checkCodeFragment(funcInfo, srcData, codeFragment):
     funcs = extractFuncs(codeFragment)
-    if not funcs:
-        return None
+
     for funcName, args, kwargs in funcs:
         #print 'checking func', funcName
 
@@ -150,6 +199,36 @@ def checkCodeFragment(funcInfo, srcData, codeFragment):
                     # print 'checking lines:', program.lines
                     if checkProgram(program, srcData):
                         return program
+
+    funcSnippets = extractFuncSnippets(codeFragment)
+
+    # print ' === found funcs:', len(funcSnippets)
+    # for s in funcSnippets:
+    #     funcInfo, funcBody = s
+    #     print funcInfo.name, funcInfo.args
+    #     for l in funcBody:
+    #         print l
+    #     print
+    #print
+
+    for snippFuncInfo, snippBody in funcSnippets:
+        if len(snippFuncInfo.args) != len(funcInfo.args):
+            continue
+        if not snippBody:
+            continue
+        offset = getOffset(snippBody[0])
+        # print 'snip args:', snippFuncInfo.args
+        # print 'orig args:', funcInfo.args
+        program = Program(funcInfo)
+        for l in snippBody:
+            l = l[offset:]
+            # print 'before:', l
+            l = replaceArgs(l, snippFuncInfo.args, funcInfo.args)
+            # print 'after: ', l
+            program.addBodyLine(l)
+
+        if checkProgram(program, srcData):
+            return program
 
     return None
 
@@ -263,11 +342,23 @@ def main():
     #program.addBodyLine('return sorted(%s, reverse=False)' % funcInfo.args[0])
     #print checkProgram(program, problemFile)
 
-    # fragments = [
-    #     'print max(path.nodes, key=y)',
-    #     'print sorted(nums, reverse=True)',
-    #     'return sum(values)',
-    # ]
+#     fragments = [
+#         'print max(path.nodes, key=y)',
+#         'print sorted(nums, reverse=True)',
+#         'return sum(values)',
+#         '''
+# def reverse(text):
+#     a = ""
+#     for i in range(1, len(text) + 1):
+#         a += text[len(text) - i]
+#     return a
+#
+# def tmp():
+#   print 42
+#
+# print(reverse("Hello World!")) # prints: !dlroW olleH
+#         '''
+#     ]
 
     print '[info] searching'
     fragments = getFragments('python ' + description, 50)
