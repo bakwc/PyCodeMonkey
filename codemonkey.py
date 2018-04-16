@@ -32,6 +32,9 @@ class Program(object):
     def addImport(self, importName):
         self.imports.append(importName)
 
+    def addFutureDivision(self):
+        self.addImport('from __future__ import division')
+
 def parseFunctionDef(funcDef):
     assert funcDef.startswith('def ')
     assert funcDef.endswith('):')
@@ -43,14 +46,22 @@ def parseFunctionDef(funcDef):
     funcArgs = map(lambda x:x.strip(), funcDef.split(','))
     return FuncInfo(funcName, funcArgs)
 
-def generateProgram(program):
+def generateImports(program):
     outData = ''
     for importName in program.imports:
-        outData += 'import %s\n' % importName
+        outData += importName
     outData += '\n'
+    return outData
+
+def generateProgram(program):
+    outData = ''
+    # for importName in program.imports:
+    #     outData += 'import %s\n' % importName
+    # outData += '\n'
 
     funcInfo = program.funcInfo
 
+    outData += '\n'
     outData += 'def %s(%s):\n' % (funcInfo.name, ', '.join(funcInfo.args))
     for line in program.lines:
         outData += '    %s\n' % line
@@ -59,6 +70,7 @@ def generateProgram(program):
 def generateOutput(program, srcData, outFile):
     before, after = srcData
     outData = ''
+    outData += generateImports(program)
     outData += before
     outData += generateProgram(program)
     outData += after
@@ -165,6 +177,27 @@ def extractFuncSnippets(codeFragment):
     return funcSnippets
 
 
+def extractOneLiners(codeFragment):
+    lines = codeFragment.split('\n')
+    oneLiners = []
+    for l in lines:
+        l = l.strip()
+        if not l:
+            continue
+        l = ' ' + l + ' '
+        eq = l.find('=')
+        if eq != -1 and l[eq + 1] != '=' and l[eq-1] not in ('+', '-'):
+            l = l[eq+1:]
+        l = l.strip()
+        if not l:
+            continue
+        names = findNames(l)
+        if not names:
+            continue
+        oneLiners.append((names, l))
+    return oneLiners
+
+
 def replaceArgs(l, argsFrom, argsTo):
     for i in xrange(len(argsFrom)):
         argFrom = argsFrom[i]
@@ -173,6 +206,10 @@ def replaceArgs(l, argsFrom, argsTo):
         target = r'\1%s\2' % argTo
         l = re.sub(pattern, target, l)
     return l
+
+
+def findNames(l):
+    return re.findall(r'[a-zA-Z][a-zA-Z\d]*', l)
 
 
 def checkCodeFragment(funcInfo, srcData, codeFragment):
@@ -188,6 +225,9 @@ def checkCodeFragment(funcInfo, srcData, codeFragment):
         #print 'checking lines:', program.lines
         if checkProgram(program, srcData):
             return program
+        program.addFutureDivision()
+        if checkProgram(program, srcData):
+            return program
 
         if kwargs:
             program = Program(funcInfo)
@@ -200,6 +240,9 @@ def checkCodeFragment(funcInfo, srcData, codeFragment):
                     program = Program(funcInfo)
                     program.addBodyLine('return %s(%s, %s=%s)' % (funcName, ', '.join(funcInfo.args), kwarg[0], kwarg[1]))
                     # print 'checking lines:', program.lines
+                    if checkProgram(program, srcData):
+                        return program
+                    program.addFutureDivision()
                     if checkProgram(program, srcData):
                         return program
 
@@ -234,6 +277,26 @@ def checkCodeFragment(funcInfo, srcData, codeFragment):
 
         if checkProgram(program, srcData):
             return program
+
+        program.addFutureDivision()
+        if checkProgram(program, srcData):
+            return program
+
+    oneLiners = extractOneLiners(codeFragment)
+    for vars, line in oneLiners:
+        if len(vars) < len(funcInfo.args):
+            continue
+        # todo: check all combinations
+        for var in vars:
+            if len(funcInfo.args) >= 1:
+                line = replaceArgs(line, [var], [funcInfo.args[0]])
+            program = Program(funcInfo)
+            program.addBodyLine('return ' + line)
+            if checkProgram(program, srcData):
+                return program
+            program.addFutureDivision()
+            if checkProgram(program, srcData):
+                return program
 
     return None
 
@@ -372,6 +435,8 @@ def main():
 
     program = checkCodeFragments(funcInfo, srcData, fragments)
     if program is not None:
+        print ''
+        print generateImports(program)
         print generateProgram(program)
     else:
         print 'go hack yourself'
