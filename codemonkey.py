@@ -180,6 +180,8 @@ def checkCodeFragment(funcInfo, srcData, codeFragment):
 
     for funcName, args, kwargs in funcs:
         #print 'checking func', funcName
+        if funcName in ('input', 'raw_input'):
+            continue
 
         program = Program(funcInfo)
         program.addBodyLine('return %s(%s)' % (funcName, ', '.join(funcInfo.args)))
