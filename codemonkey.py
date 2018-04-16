@@ -7,6 +7,7 @@ import imp
 import time
 from subprocess import Popen, PIPE
 from howdoi import howdoi
+from threading import Timer
 
 FNULL = open(os.devnull, 'w')
 
@@ -31,6 +32,10 @@ class Program(object):
 
     def addImport(self, importName):
         self.imports.append(importName)
+
+    def addImports(self, imports):
+        for i in imports:
+            self.addImport(i)
 
     def addFutureDivision(self):
         self.addImport('from __future__ import division')
@@ -84,7 +89,13 @@ if __name__ == '__main__':
 def checkProgram(program, srcData):
     generateOutput(program, srcData, OUT_FILE)
     process = Popen(["python", "result.py"], stderr=PIPE, stdout=PIPE)
-    (output, err) = process.communicate()
+    kill_proc = lambda p: p.kill()
+    timer = Timer(0.5, kill_proc, [process])
+    try:
+        timer.start()
+        (output, err) = process.communicate()
+    finally:
+        timer.cancel()
     exit_code = process.wait()
     return exit_code == 0
 
@@ -179,6 +190,9 @@ def extractFuncSnippets(codeFragment):
 
 def extractOneLiners(codeFragment):
     lines = codeFragment.split('\n')
+    lines = [l for l in lines if l.strip()]
+    if len(lines) > 3:
+        return []
     oneLiners = []
     for l in lines:
         l = l.strip()
@@ -197,6 +211,25 @@ def extractOneLiners(codeFragment):
         oneLiners.append((names, l))
     return oneLiners
 
+def extractImports(codeFragment):
+    imports = []
+    lines = codeFragment.split('\n')
+    lines = [l for l in lines if l.strip()]
+    for l in lines:
+        l = l.strip()
+        if l.startswith('from ') or l.startswith('import '):
+            imports.append(l)
+    if imports:
+        return imports
+    if codeFragment.find('math.') != -1:
+        imports.append('import math')
+    else:
+        if codeFragment.find('sqrt') != -1 or \
+                codeFragment.find('pow') != -1 or \
+                codeFragment.find('sin') != -1 or \
+                codeFragment.find('cos') != -1:
+            imports.append('from math import *')
+    return list(set(imports))
 
 def replaceArgs(l, argsFrom, argsTo):
     for i in xrange(len(argsFrom)):
@@ -214,6 +247,7 @@ def findNames(l):
 
 def checkCodeFragment(funcInfo, srcData, codeFragment):
     funcs = extractFuncs(codeFragment)
+    imports = extractImports(codeFragment)
 
     for funcName, args, kwargs in funcs:
         #print 'checking func', funcName
@@ -221,6 +255,7 @@ def checkCodeFragment(funcInfo, srcData, codeFragment):
             continue
 
         program = Program(funcInfo)
+        program.addImports(imports)
         program.addBodyLine('return %s(%s)' % (funcName, ', '.join(funcInfo.args)))
         #print 'checking lines:', program.lines
         if checkProgram(program, srcData):
@@ -231,6 +266,7 @@ def checkCodeFragment(funcInfo, srcData, codeFragment):
 
         if kwargs:
             program = Program(funcInfo)
+            program.addImports(imports)
             program.addBodyLine('return %s(%s, %s)' % (funcName, ', '.join(funcInfo.args), ', '.join([x[0] + '=' + x[1] for x in kwargs])))
             #print 'checking lines:', program.lines
             if checkProgram(program, srcData):
@@ -238,6 +274,7 @@ def checkCodeFragment(funcInfo, srcData, codeFragment):
             if len(kwargs) > 1:
                 for kwarg in kwargs:
                     program = Program(funcInfo)
+                    program.addImports(imports)
                     program.addBodyLine('return %s(%s, %s=%s)' % (funcName, ', '.join(funcInfo.args), kwarg[0], kwarg[1]))
                     # print 'checking lines:', program.lines
                     if checkProgram(program, srcData):
@@ -257,6 +294,10 @@ def checkCodeFragment(funcInfo, srcData, codeFragment):
     #     print
     #print
 
+    argsToRaplceOrig = []
+    for i, arg in enumerate(funcInfo.args):
+        argsToRaplceOrig.append('%s%d' % (arg, i + 1))
+
     for snippFuncInfo, snippBody in funcSnippets:
         if len(snippFuncInfo.args) != len(funcInfo.args):
             continue
@@ -267,9 +308,12 @@ def checkCodeFragment(funcInfo, srcData, codeFragment):
         # print 'snip args:', snippFuncInfo.args
         # print 'orig args:', funcInfo.args
         program = Program(funcInfo)
+        program.addImports(imports)
         for l in snippBody:
             l = l[offset:]
             # print 'before:', l
+
+            l = replaceArgs(l, funcInfo.args, argsToRaplceOrig)
             l = replaceArgs(l, snippFuncInfo.args, funcInfo.args)
             l = replaceArgs(l, [snippFuncInfo.name], [funcInfo.name])
             # print 'after: ', l
@@ -278,11 +322,22 @@ def checkCodeFragment(funcInfo, srcData, codeFragment):
         if checkProgram(program, srcData):
             return program
 
+        program.lines[-1] += '[0]'
+        if checkProgram(program, srcData):
+            return program
+        program.lines[-1] = program.lines[-1][:-3]
+
+        program.lines[-1] += '[-1]'
+        if checkProgram(program, srcData):
+            return program
+        program.lines[-1] = program.lines[-1][:-4]
+
         program.addFutureDivision()
         if checkProgram(program, srcData):
             return program
 
     oneLiners = extractOneLiners(codeFragment)
+
     for vars, line in oneLiners:
         if len(vars) < len(funcInfo.args):
             continue
@@ -291,6 +346,7 @@ def checkCodeFragment(funcInfo, srcData, codeFragment):
             if len(funcInfo.args) >= 1:
                 line = replaceArgs(line, [var], [funcInfo.args[0]])
             program = Program(funcInfo)
+            program.addImports(imports)
             program.addBodyLine('return ' + line)
             if checkProgram(program, srcData):
                 return program
@@ -364,7 +420,13 @@ def getFragments(query, count = 20):
     args['pos'] = 1
     args['color'] = False
     e = _get_instructions(args)
-    return e
+    frags = set()
+    newFrags = []
+    for f in e:
+        if not f in frags:
+            frags.add(f)
+            newFrags.append(f)
+    return newFrags
 
 def readProblemFile(inFile):
     lines = open(inFile, 'r').read().split('\n')
@@ -393,8 +455,6 @@ def main():
     funcDef, description, before, after = problem
 
     srcData = (before, after)
-
-
 
     #problem = imp.load_source('problem', problemFile)
     #description = problem.DESCR
@@ -429,7 +489,7 @@ def main():
 #     ]
 
     print '[info] searching'
-    fragments = getFragments('python ' + description, 50)
+    fragments = getFragments('python ' + description, 100)
 
     print '[info] checking'
 
