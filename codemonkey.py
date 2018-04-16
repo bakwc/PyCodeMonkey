@@ -55,11 +55,12 @@ def generateProgram(program):
         outData += '    %s\n' % line
     return outData
 
-def generateOutput(program, inFile, outFile):
-    inData = open(inFile, 'r').read()
-    outData = generateProgram(program)
-    outData += inData
-    outData += '\n'
+def generateOutput(program, srcData, outFile):
+    before, after = srcData
+    outData = ''
+    outData += before
+    outData += generateProgram(program)
+    outData += after
     outData += '''
 if __name__ == '__main__':
     tests()
@@ -67,8 +68,8 @@ if __name__ == '__main__':
     open(outFile, 'w').write(outData)
     assert open(outFile, 'r').read() == outData
 
-def checkProgram(program, inFile):
-    generateOutput(program, inFile, OUT_FILE)
+def checkProgram(program, srcData):
+    generateOutput(program, srcData, OUT_FILE)
     process = Popen(["python", "result.py"], stderr=PIPE, stdout=PIPE)
     (output, err) = process.communicate()
     exit_code = process.wait()
@@ -123,7 +124,7 @@ def extractFuncs(framgent):
 
     return funcs
 
-def checkCodeFragment(funcInfo, inFile, codeFragment):
+def checkCodeFragment(funcInfo, srcData, codeFragment):
     funcs = extractFuncs(codeFragment)
     if not funcs:
         return None
@@ -133,31 +134,31 @@ def checkCodeFragment(funcInfo, inFile, codeFragment):
         program = Program(funcInfo)
         program.addBodyLine('return %s(%s)' % (funcName, ', '.join(funcInfo.args)))
         #print 'checking lines:', program.lines
-        if checkProgram(program, inFile):
+        if checkProgram(program, srcData):
             return program
 
         if kwargs:
             program = Program(funcInfo)
             program.addBodyLine('return %s(%s, %s)' % (funcName, ', '.join(funcInfo.args), ', '.join([x[0] + '=' + x[1] for x in kwargs])))
             #print 'checking lines:', program.lines
-            if checkProgram(program, inFile):
+            if checkProgram(program, srcData):
                 return program
             if len(kwargs) > 1:
                 for kwarg in kwargs:
                     program = Program(funcInfo)
                     program.addBodyLine('return %s(%s, %s=%s)' % (funcName, ', '.join(funcInfo.args), kwarg[0], kwarg[1]))
                     # print 'checking lines:', program.lines
-                    if checkProgram(program, inFile):
+                    if checkProgram(program, srcData):
                         return program
 
     return None
 
-def checkCodeFragments(funcInfo, inFile, codeFragments):
+def checkCodeFragments(funcInfo, srcData, codeFragments):
     for codeFragment in codeFragments:
         # print 'checking fragment: <<<'
         # print codeFragment
         # print '>>>\n'
-        program = checkCodeFragment(funcInfo, inFile, codeFragment)
+        program = checkCodeFragment(funcInfo, srcData, codeFragment)
         if program is not None:
             return program
     return None
@@ -218,15 +219,39 @@ def getFragments(query, count = 20):
     e = _get_instructions(args)
     return e
 
+def readProblemFile(inFile):
+    lines = open(inFile, 'r').read().split('\n')
+    for i in xrange(0, len(lines) - 2):
+        l1 = lines[i]
+        l2 = lines[i + 1]
+        l3 = lines[i + 2]
+        if l1.startswith('#') and l2.startswith('def ') and l3.startswith('    pass'):
+            before = '\n'.join(lines[:i + 1])
+            after = '\n'.join(lines[i+3:])
+            funcDef = l2
+            description = l1[1:].strip()
+            return funcDef, description, before, after
+
 
 def main():
     if len(sys.argv) != 2:
         return printUsage()
 
     problemFile = sys.argv[1]
-    problem = imp.load_source('problem', problemFile)
-    description = problem.DESCR
-    funcInfo = parseFunctionDef(problem.DEF)
+
+    problem = readProblemFile(problemFile)
+    if problem is None:
+        raise Exception('wrong problem format')
+
+    funcDef, description, before, after = problem
+
+    srcData = (before, after)
+
+
+
+    #problem = imp.load_source('problem', problemFile)
+    #description = problem.DESCR
+    funcInfo = parseFunctionDef(funcDef)
 
     # program = Program(funcInfo)
     #program.addBodyLine('return sorted(%s, reverse=True)' % funcInfo.args[0])
@@ -244,9 +269,12 @@ def main():
     #     'return sum(values)',
     # ]
 
-    fragments = getFragments('python ' + description, 10)
+    print '[info] searching'
+    fragments = getFragments('python ' + description, 50)
 
-    program = checkCodeFragments(funcInfo, problemFile, fragments)
+    print '[info] checking'
+
+    program = checkCodeFragments(funcInfo, srcData, fragments)
     if program is not None:
         print generateProgram(program)
     else:

@@ -1,6 +1,9 @@
 
-DEF = "def reverseSort(asd):"
-DESCR = "sort in reverse order"
+
+# sort in reverse order
+def reverseSort(seq):
+    pass
+
 
 def tests():
     assert reverseSort([1, 2, 3]) == [3, 2, 1]
