@@ -313,8 +313,9 @@ def checkCodeFragment(funcInfo, srcData, codeFragment):
             l = l[offset:]
             # print 'before:', l
 
-            l = replaceArgs(l, funcInfo.args, argsToRaplceOrig)
-            l = replaceArgs(l, snippFuncInfo.args, funcInfo.args)
+            if sorted(funcInfo.args) != sorted(snippFuncInfo.args):
+                l = replaceArgs(l, funcInfo.args, argsToRaplceOrig)
+                l = replaceArgs(l, snippFuncInfo.args, funcInfo.args)
             l = replaceArgs(l, [snippFuncInfo.name], [funcInfo.name])
             # print 'after: ', l
             program.addBodyLine(l)
