@@ -133,6 +133,7 @@ def getOffset(l):
 
 def extractFuncSnippets(codeFragment):
     lines = codeFragment.split('\n')
+    lines.append('# end')
     currentFunc = None
     offset = None
     bodyLines = []
@@ -217,6 +218,7 @@ def checkCodeFragment(funcInfo, srcData, codeFragment):
         if not snippBody:
             continue
         offset = getOffset(snippBody[0])
+        # print ' === check func', snippFuncInfo.name
         # print 'snip args:', snippFuncInfo.args
         # print 'orig args:', funcInfo.args
         program = Program(funcInfo)
@@ -224,6 +226,7 @@ def checkCodeFragment(funcInfo, srcData, codeFragment):
             l = l[offset:]
             # print 'before:', l
             l = replaceArgs(l, snippFuncInfo.args, funcInfo.args)
+            l = replaceArgs(l, [snippFuncInfo.name], [funcInfo.name])
             # print 'after: ', l
             program.addBodyLine(l)
 
