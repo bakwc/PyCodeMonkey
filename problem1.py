@@ -1,10 +1,11 @@
 
-
-# sort in reverse order
-def reverseSort(seq):
+# find fibonacci number
+def myFib(n):
     pass
 
-
 def tests():
-    assert reverseSort([1, 2, 3]) == [3, 2, 1]
-    assert reverseSort([10, 12, 5]) == [12, 10, 5]
+    assert myFib(1) == 1
+    assert myFib(2) == 1
+    assert myFib(3) == 2
+    assert myFib(4) == 3
+    assert myFib(5) == 5

@@ -333,6 +333,12 @@ def checkCodeFragment(funcInfo, srcData, codeFragment):
             return program
         program.lines[-1] = program.lines[-1][:-4]
 
+        if len(funcInfo.args) > 0:
+            program.lines = ['%s -= 1' % funcInfo.args[0]] + program.lines
+            if checkProgram(program, srcData):
+                return program
+            program.lines = program.lines[1:]
+
         program.addFutureDivision()
         if checkProgram(program, srcData):
             return program
